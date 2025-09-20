@@ -1,0 +1,237 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@300;400;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    font-family: 'Merriweather', Georgia, serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.2;
+  }
+  
+  /* Focus styles for accessibility */
+  *:focus-visible {
+    outline: 2px solid #CC8A19;
+    outline-offset: 2px;
+  }
+  
+  /* Hide scrollbar while keeping functionality */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-ochre-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-ochre-600 transition-all duration-300 shadow-soft hover:shadow-soft-lg transform hover:-translate-y-0.5;
+  }
+  
+  .btn-secondary {
+    @apply bg-navy-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-navy-600 transition-all duration-300 shadow-soft hover:shadow-soft-lg transform hover:-translate-y-0.5;
+  }
+  
+  .btn-outline {
+    @apply border-2 border-ochre-500 text-ochre-500 px-6 py-3 rounded-xl font-medium hover:bg-ochre-500 hover:text-white transition-all duration-300;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-soft hover:shadow-soft-lg transition-all duration-300 transform hover:-translate-y-1;
+  }
+  
+  .section-padding {
+    @apply py-16 lg:py-24;
+  }
+  
+  .container-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+  
+  .prose {
+    @apply text-gray-900 leading-relaxed;
+  }
+  
+  .prose h1 {
+    @apply text-h1 font-heading text-navy-500 mb-6;
+  }
+  
+  .prose h2 {
+    @apply text-h2 font-heading text-navy-500 mb-4 mt-8;
+  }
+  
+  .prose h3 {
+    @apply text-h3 font-heading text-navy-500 mb-3 mt-6;
+  }
+  
+  .prose p {
+    @apply mb-4 text-body;
+  }
+  
+  .prose ul, .prose ol {
+    @apply mb-4 pl-6;
+  }
+  
+  .prose li {
+    @apply mb-2;
+  }
+  
+  .prose a {
+    @apply text-ochre-500 hover:text-ochre-600 font-medium transition-colors duration-200;
+  }
+  
+  .prose blockquote {
+    @apply border-l-4 border-ochre-500 pl-4 italic text-gray-600 my-4;
+  }
+}
+
+@layer utilities {
+  /* Text selection color */
+  ::selection {
+    background-color: #CC8A19;
+    color: white;
+  }
+  
+  ::-moz-selection {
+    background-color: #CC8A19;
+    color: white;
+  }
+  
+  /* Smooth transitions */
+  .transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 300ms;
+  }
+  
+  /* Responsive typography */
+  @media (max-width: 640px) {
+    .text-h1 {
+      font-size: 2.25rem; /* 36px */
+    }
+    
+    .text-h2 {
+      font-size: 1.75rem; /* 28px */
+    }
+    
+    .text-body {
+      font-size: 1rem; /* 16px */
+    }
+  }
+  
+  /* Reduced motion for accessibility */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CC8A19;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #B8791A;
+}
+
+/* Mobile navigation scroll */
+.max-h-screen-half {
+  max-height: 50vh;
+}
+
+.mobile-nav-scroll {
+  max-height: 50vh;
+  scrollbar-width: thin;
+  scrollbar-color: #CC8A19 #f3f4f6;
+}
+
+.mobile-nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mobile-nav-scroll::-webkit-scrollbar-thumb {
+  background: #CC8A19;
+  border-radius: 3px;
+}
+
+.mobile-nav-scroll::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 3px;
+}
+
+.mobile-nav-scroll::-webkit-scrollbar-thumb:hover {
+  background: #B8791A;
+}
+
+/* Loading states */
+.loading-skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  border-radius: 4px;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Form validation styles */
+.form-error {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 1px #ef4444;
+}
+
+.form-success {
+  border-color: #22c55e !important;
+  box-shadow: 0 0 0 1px #22c55e;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .bg-gray-50 {
+    background-color: white;
+  }
+  
+  .text-gray-600 {
+    color: black;
+  }
+  
+  .border-gray-200 {
+    border-color: black;
+  }
+}

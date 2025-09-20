@@ -1,0 +1,46 @@
+Folder PATH listing for volume Windows
+Volume serial number is E44B-A095
+C:.
+¦   App.tsx
+¦   index.css
+¦   main.tsx
+¦   src_structure.txt
+¦   vite-env.d.ts
+¦   
++---components
+¦   +---Common
+¦   ¦       ScrollToTop.tsx
+¦   ¦       SEO.tsx
+¦   ¦       
+¦   +---Layout
+¦           Footer.tsx
+¦           Header.tsx
+¦           Layout.tsx
+¦           
++---pages
+        About.tsx
+        AuthCallback.tsx
+        ComingSoon.tsx
+        Contact.tsx
+        CourseDetail.tsx
+        Courses.tsx
+        Dashboard.tsx
+        Disclaimer.tsx
+        Events.tsx
+        FewMoreClassDetail.tsx
+        ForgotPassword.tsx
+        Gallery.tsx
+        Home.tsx
+        Login.tsx
+        Meditation.tsx
+        MeditationDetail.tsx
+        OtherCourseDetail.tsx
+        PITCs.tsx
+        PrivacyPolicy.tsx
+        Register.tsx
+        ResetPassword.tsx
+        Resources.tsx
+        TermsConditions.tsx
+        VedanticTextDetail.tsx
+        VerifyEmail.tsx
+        
