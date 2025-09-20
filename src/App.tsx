@@ -57,6 +57,7 @@ import VivekaChudamani from './pages/VivekaChudamani';
 import SadhanaPanchakam from './pages/SadhanaPanchakam';
 import Tattvabodha from './pages/Tattvabodha';
 import SanskritClass from './pages/SanskritClass';
+import Jap from './pages/Jap';
 
 const App: React.FC = () => {
   return (
@@ -86,7 +87,7 @@ const App: React.FC = () => {
               {/* Meditation Pages */}
               <Route path="/meditation" element={<Meditation />} />
               <Route path="/meditation/kriya" element={<Kriya />} />
-              <Route path="/meditation/jap-practice" element={<JapB />} />
+              <Route path="/meditation/jap" element={<JapB />} />
               <Route path="/meditation/samvedana" element={<Samvedana />} />
               <Route path="/meditation/sakshi" element={<Sakshi />} />
               <Route path="/meditation/ahangrah-upasana" element={<AhangrahUpasana />} />
@@ -98,6 +99,7 @@ const App: React.FC = () => {
               <Route path="/courses/other/yog-pranayam" element={<YogPranayam />} />
               <Route path="/courses/other/swadhyay" element={<Swadhyay />} />
               <Route path="/courses/other/teerth-yatra" element={<TeerthYatra />} />
+              <Route path="/courses/other/jap-practice" element={<Jap />} />
 
               {/* Upcoming Courses */}
               <Route path="/courses/drg-drsya-viveka" element={<DrgDrsyaViveka />} />
