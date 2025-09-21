@@ -1,11 +1,19 @@
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
-import { Request, Response, NextFunction } from 'express';
 
-interface AuthRequest extends Request {
-  user?: any;
+// JWT payload type
+interface TokenPayload {
+  id: string;
 }
 
-export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
+// Extend Express Request
+export interface AuthRequest extends Request {
+  user?: TokenPayload;
+}
+
+// Middleware compatible with Express
+export const authenticateToken: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+  const authReq = req as AuthRequest;
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -13,11 +21,11 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret', (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as TokenPayload;
+    authReq.user = decoded;
     next();
-  });
+  } catch (err) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
 };

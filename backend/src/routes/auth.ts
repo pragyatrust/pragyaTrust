@@ -1,10 +1,10 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import Joi from 'joi';
-import speakeasy from 'speakeasy';
-import { User } from '../models/User.js';
-import { authenticateToken } from '../middleware/auth.js';
-import passport from '../config/passport.js';
+import multer from 'multer';
+import { User } from '../models/User';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
 import {
   generateVerificationToken,
   generateOTP,
@@ -12,17 +12,15 @@ import {
   sendOTPEmail,
   sendPasswordResetEmail,
   sendWelcomeEmail
-} from '../utils/emailService.js';
+} from '../utils/emailService';
 
 const router = express.Router();
 
-// In-memory storage for users (fallback)
-let inMemoryUsers: any[] = [];
-let inMemoryOTPs: { [email: string]: { otp: string; expires: Date; attempts: number } } = {};
-
-// Validation schemas
+// ------------------------
+// Validation Schemas
+// ------------------------
 const registerSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(50).required(),
+  name: Joi.string().min(2).max(50).required(),
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required()
 });
@@ -33,524 +31,162 @@ const loginSchema = Joi.object({
   otp: Joi.string().length(6).optional()
 });
 
-const otpSchema = Joi.object({
-  email: Joi.string().email().required(),
-  otp: Joi.string().length(6).required()
+const usernameSchema = Joi.object({
+  username: Joi.string().alphanum().min(3).max(20).required()
 });
 
-const forgotPasswordSchema = Joi.object({
-  email: Joi.string().email().required()
-});
-
-const resetPasswordSchema = Joi.object({
-  token: Joi.string().required(),
-  password: Joi.string().min(6).required()
-});
-
-// Generate JWT token
+// ------------------------
+// JWT Helper
+// ------------------------
 const generateToken = (userId: string) => {
-  return jwt.sign(
-    { id: userId },
-    process.env.JWT_SECRET || 'fallback-secret',
-    { expiresIn: '7d' }
-  );
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET || 'fallback-secret', { expiresIn: '7d' });
 };
 
-// Register with email/password
-router.post('/register', async (req, res) => {
+// ------------------------
+// Routes
+// ------------------------
+
+// Register
+router.post('/register', async (req: Request, res: Response) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
     const { name, email, password } = value;
 
-    // Check if user exists
-    let existingUser;
-    if (process.env.MONGO_URL) {
-      existingUser = await User.findOne({ email });
-    } else {
-      existingUser = inMemoryUsers.find(u => u.email === email);
-    }
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ error: 'User already exists' });
 
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists with this email' });
-    }
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate verification token
     const verificationToken = generateVerificationToken();
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // Create user
-    let user;
-    if (process.env.MONGO_URL) {
-      user = new User({
-        name,
-        email,
-        password,
-        emailVerificationToken: verificationToken,
-        emailVerificationExpires: verificationExpires
-      });
-      await user.save();
-    } else {
-      user = {
-        _id: Date.now().toString(),
-        name,
-        email,
-        password, // In production, this should be hashed
-        emailVerificationToken: verificationToken,
-        emailVerificationExpires: verificationExpires,
-        isEmailVerified: false,
-        createdAt: new Date()
-      };
-      inMemoryUsers.push(user);
-    }
-
-    // Send verification email
-    const emailSent = await sendVerificationEmail(email, verificationToken, name);
-    
-    res.status(201).json({
-      message: 'Registration successful! Please check your email to verify your account.',
-      emailSent,
-      userId: user._id
+    const user = new User({
+      name,
+      email,
+      password: hashedPassword,
+      emailVerificationToken: verificationToken,
+      emailVerificationExpires: verificationExpires,
+      isEmailVerified: false
     });
-  } catch (error) {
-    console.error('Registration error:', error);
+
+    await user.save();
+    await sendVerificationEmail(email, verificationToken, name);
+
+    res.status(201).json({ message: 'Registered! Please verify your email.' });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-// Verify email
-router.post('/verify-email', async (req, res) => {
+// Verify Email
+router.post('/verify-email', async (req: Request, res: Response) => {
   try {
     const { token } = req.body;
-    
-    if (!token) {
-      return res.status(400).json({ error: 'Verification token required' });
-    }
+    if (!token) return res.status(400).json({ error: 'Verification token required' });
 
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findOne({
-        emailVerificationToken: token,
-        emailVerificationExpires: { $gt: new Date() }
-      });
-    } else {
-      user = inMemoryUsers.find(u => 
-        u.emailVerificationToken === token && 
-        u.emailVerificationExpires > new Date()
-      );
-    }
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: new Date() }
+    });
 
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired verification token' });
-    }
+    if (!user) return res.status(400).json({ error: 'Invalid or expired token' });
 
-    // Update user
-    if (process.env.MONGO_URL) {
-      await User.findByIdAndUpdate(user._id, {
-        isEmailVerified: true,
-        $unset: { emailVerificationToken: 1, emailVerificationExpires: 1 }
-      });
-    } else {
-      user.isEmailVerified = true;
-      delete user.emailVerificationToken;
-      delete user.emailVerificationExpires;
-    }
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
 
-    // Send welcome email
     await sendWelcomeEmail(user.email, user.name);
-
-    res.json({ message: 'Email verified successfully!' });
-  } catch (error) {
-    console.error('Email verification error:', error);
-    res.status(500).json({ error: 'Email verification failed' });
+    res.json({ message: 'Email verified successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Verification failed' });
   }
 });
 
-// Login with email/password
-router.post('/login', async (req, res) => {
+// Login
+router.post('/login', async (req: Request, res: Response) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
+    if (error) return res.status(400).json({ error: error.details[0].message });
 
     const { email, password, otp } = value;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
-    // Find user
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findOne({ email });
-    } else {
-      user = inMemoryUsers.find(u => u.email === email);
-    }
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) return res.status(400).json({ error: 'Invalid credentials' });
 
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
+    if (!user.isEmailVerified) return res.status(400).json({ error: 'Email not verified' });
 
-    // Check if account is locked
-    if (user.isLocked) {
-      return res.status(423).json({ error: 'Account temporarily locked due to too many failed attempts' });
-    }
-
-    // Verify password
-    let isValidPassword = false;
-    if (process.env.MONGO_URL) {
-      isValidPassword = await user.comparePassword(password);
-    } else {
-      isValidPassword = user.password === password; // In production, use proper hashing
-    }
-
-    if (!isValidPassword) {
-      // Increment login attempts
-      if (process.env.MONGO_URL) {
-        await user.incLoginAttempts();
-      }
-      return res.status(400).json({ error: 'Invalid credentials' });
-    }
-
-    // Check if email is verified
-    if (!user.isEmailVerified) {
-      return res.status(400).json({ 
-        error: 'Please verify your email before logging in',
-        needsVerification: true 
-      });
-    }
-
-    // Check if OTP is enabled
+    // OTP check
     if (user.otpEnabled && !otp) {
-      // Generate and send OTP
       const otpCode = generateOTP();
-      const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-      
-      if (process.env.MONGO_URL) {
-        // Store OTP in user document temporarily
-        await User.findByIdAndUpdate(user._id, {
-          tempOTP: otpCode,
-          tempOTPExpires: otpExpires
-        });
-      } else {
-        inMemoryOTPs[email] = {
-          otp: otpCode,
-          expires: otpExpires,
-          attempts: 0
-        };
-      }
+      user.tempOTP = otpCode;
+      user.tempOTPExpires = new Date(Date.now() + 10 * 60 * 1000);
+      await user.save();
 
       await sendOTPEmail(email, otpCode, user.name);
-      
-      return res.json({
-        message: 'OTP sent to your email',
-        requiresOTP: true
-      });
+      return res.json({ message: 'OTP sent', requiresOTP: true });
     }
 
-    // Verify OTP if provided
-    if (user.otpEnabled && otp) {
-      let isValidOTP = false;
-      
-      if (process.env.MONGO_URL) {
-        const userWithOTP = await User.findOne({
-          _id: user._id,
-          tempOTP: otp,
-          tempOTPExpires: { $gt: new Date() }
-        });
-        isValidOTP = !!userWithOTP;
-        
-        if (isValidOTP) {
-          // Clear temporary OTP
-          await User.findByIdAndUpdate(user._id, {
-            $unset: { tempOTP: 1, tempOTPExpires: 1 }
-          });
-        }
-      } else {
-        const storedOTP = inMemoryOTPs[email];
-        if (storedOTP && storedOTP.otp === otp && storedOTP.expires > new Date()) {
-          isValidOTP = true;
-          delete inMemoryOTPs[email];
-        }
-      }
+    if (otp) {
+      const validOTP = user.tempOTP === otp && user.tempOTPExpires! > new Date();
+      if (!validOTP) return res.status(400).json({ error: 'Invalid or expired OTP' });
 
-      if (!isValidOTP) {
-        return res.status(400).json({ error: 'Invalid or expired OTP' });
-      }
+      user.tempOTP = undefined;
+      user.tempOTPExpires = undefined;
+      await user.save();
     }
 
-    // Reset login attempts on successful login
-    if (process.env.MONGO_URL) {
-      await user.resetLoginAttempts();
-      await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
-    } else {
-      user.lastLogin = new Date();
-    }
-
-    // Generate JWT token
-    const token = generateToken(user._id);
-
+    const token = generateToken(user._id.toString());
     res.json({
-      message: 'Login successful',
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        role: user.role || 'user'
-      }
+      user: { id: user._id, name: user.name, email: user.email, username: user.username, avatar: user.avatar }
     });
-  } catch (error) {
-    console.error('Login error:', error);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Login failed' });
   }
 });
 
-// Google OAuth routes
-router.get('/google', passport.authenticate('google', {
-  scope: ['profile', 'email']
-}));
+// Update Profile
+router.put('/profile', authenticateToken, multer().single('avatar'), async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const userId = authReq.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-router.get('/google/callback', 
-  passport.authenticate('google', { session: false }),
-  (req, res) => {
-    try {
-      const user = req.user as any;
-      const token = generateToken(user._id);
-      
-      // Redirect to frontend with token
-      res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
-    } catch (error) {
-      console.error('Google callback error:', error);
-      res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
-    }
-  }
-);
-
-// Enable/disable OTP
-router.post('/otp/toggle', authenticateToken, async (req, res) => {
   try {
-    const userId = (req as any).user.id;
-    const { enable } = req.body;
+    const { username, name } = req.body;
 
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findById(userId);
-    } else {
-      user = inMemoryUsers.find(u => u._id === userId);
+    if (username) {
+      const { error } = usernameSchema.validate({ username });
+      if (error) return res.status(400).json({ error: error.details[0].message });
+
+      const existing = await User.findOne({ username });
+      if (existing) return res.status(400).json({ error: 'Username already taken' });
     }
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (name) user.name = name;
+    if (username) user.username = username;
+    if (req.file && req.file.buffer) {
+      user.avatar = req.file.buffer.toString('base64');
     }
 
-    if (enable) {
-      // Generate OTP secret
-      const secret = speakeasy.generateSecret({
-        name: `Pragya Trust (${user.email})`,
-        issuer: 'Pragya Trust'
-      });
-
-      if (process.env.MONGO_URL) {
-        await User.findByIdAndUpdate(userId, {
-          otpSecret: secret.base32,
-          otpEnabled: true
-        });
-      } else {
-        user.otpSecret = secret.base32;
-        user.otpEnabled = true;
-      }
-
-      res.json({
-        message: 'OTP enabled successfully',
-        qrCode: secret.otpauth_url
-      });
-    } else {
-      if (process.env.MONGO_URL) {
-        await User.findByIdAndUpdate(userId, {
-          otpEnabled: false,
-          $unset: { otpSecret: 1 }
-        });
-      } else {
-        user.otpEnabled = false;
-        delete user.otpSecret;
-      }
-
-      res.json({ message: 'OTP disabled successfully' });
-    }
-  } catch (error) {
-    console.error('OTP toggle error:', error);
-    res.status(500).json({ error: 'Failed to toggle OTP' });
-  }
-});
-
-// Forgot password
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const { error, value } = forgotPasswordSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { email } = value;
-
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findOne({ email });
-    } else {
-      user = inMemoryUsers.find(u => u.email === email);
-    }
-
-    if (!user) {
-      // Don't reveal if user exists or not
-      return res.json({ message: 'If an account exists, password reset instructions have been sent' });
-    }
-
-    // Generate reset token
-    const resetToken = generateVerificationToken();
-    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-    if (process.env.MONGO_URL) {
-      await User.findByIdAndUpdate(user._id, {
-        resetPasswordToken: resetToken,
-        resetPasswordExpires: resetExpires
-      });
-    } else {
-      user.resetPasswordToken = resetToken;
-      user.resetPasswordExpires = resetExpires;
-    }
-
-    // Send reset email
-    await sendPasswordResetEmail(email, resetToken, user.name);
-
-    res.json({ message: 'If an account exists, password reset instructions have been sent' });
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({ error: 'Failed to process password reset request' });
-  }
-});
-
-// Reset password
-router.post('/reset-password', async (req, res) => {
-  try {
-    const { error, value } = resetPasswordSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { token, password } = value;
-
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findOne({
-        resetPasswordToken: token,
-        resetPasswordExpires: { $gt: new Date() }
-      });
-    } else {
-      user = inMemoryUsers.find(u => 
-        u.resetPasswordToken === token && 
-        u.resetPasswordExpires > new Date()
-      );
-    }
-
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired reset token' });
-    }
-
-    // Update password
-    if (process.env.MONGO_URL) {
-      await User.findByIdAndUpdate(user._id, {
-        password,
-        $unset: { resetPasswordToken: 1, resetPasswordExpires: 1 }
-      });
-    } else {
-      user.password = password; // In production, hash this
-      delete user.resetPasswordToken;
-      delete user.resetPasswordExpires;
-    }
-
-    res.json({ message: 'Password reset successful' });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ error: 'Password reset failed' });
-  }
-});
-
-// Get current user
-router.get('/me', authenticateToken, async (req, res) => {
-  try {
-    const userId = (req as any).user.id;
-    
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findById(userId).select('-password -otpSecret');
-    } else {
-      user = inMemoryUsers.find(u => u._id === userId);
-      if (user) {
-        const { password, otpSecret, ...userWithoutSensitive } = user;
-        user = userWithoutSensitive;
-      }
-    }
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({ user });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: 'Failed to get user information' });
-  }
-});
-
-// Logout
-router.post('/logout', authenticateToken, (req, res) => {
-  // With JWT, logout is handled client-side by removing the token
-  res.json({ message: 'Logged out successfully' });
-});
-
-// Resend verification email
-router.post('/resend-verification', async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ error: 'Email required' });
-    }
-
-    let user;
-    if (process.env.MONGO_URL) {
-      user = await User.findOne({ email, isEmailVerified: false });
-    } else {
-      user = inMemoryUsers.find(u => u.email === email && !u.isEmailVerified);
-    }
-
-    if (!user) {
-      return res.json({ message: 'If an unverified account exists, verification email has been sent' });
-    }
-
-    // Generate new verification token
-    const verificationToken = generateVerificationToken();
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    if (process.env.MONGO_URL) {
-      await User.findByIdAndUpdate(user._id, {
-        emailVerificationToken: verificationToken,
-        emailVerificationExpires: verificationExpires
-      });
-    } else {
-      user.emailVerificationToken = verificationToken;
-      user.emailVerificationExpires = verificationExpires;
-    }
-
-    // Send verification email
-    await sendVerificationEmail(email, verificationToken, user.name);
-
-    res.json({ message: 'If an unverified account exists, verification email has been sent' });
-  } catch (error) {
-    console.error('Resend verification error:', error);
-    res.status(500).json({ error: 'Failed to resend verification email' });
+    await user.save();
+    res.json({
+      message: 'Profile updated',
+      user: { id: user._id, name: user.name, username: user.username, avatar: user.avatar }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Profile update failed' });
   }
 });
 
